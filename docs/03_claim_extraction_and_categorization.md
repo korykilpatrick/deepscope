@@ -1,5 +1,3 @@
-# docs/03_claim_extraction_and_categorization.md
-
 # 3. Claim Extraction & Categorization
 
 ## NLP Pipeline for Detecting Financial Claims

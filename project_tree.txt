@@ -1,10 +1,16 @@
 .
+├── firebase_credentials.json
 ├── requirements.txt
 └── src
+    ├── __init__.py
+    ├── __pycache__
+    │   ├── __init__.cpython-311.pyc
+    │   ├── firebase_interface.cpython-311.pyc
+    │   └── main.cpython-311.pyc
     ├── claim_extractor.py
     ├── factchecker.py
     ├── firebase_interface.py
     ├── main.py
     └── verdict_aggregator.py
 
-2 directories, 6 files
+3 directories, 11 files
