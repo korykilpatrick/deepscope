@@ -1,0 +1,10 @@
+.
+├── requirements.txt
+└── src
+    ├── claim_extractor.py
+    ├── factchecker.py
+    ├── firebase_interface.py
+    ├── main.py
+    └── verdict_aggregator.py
+
+2 directories, 6 files
