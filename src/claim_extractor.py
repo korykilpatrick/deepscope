@@ -14,8 +14,22 @@ prompt_template = PromptTemplate(
     template="""
 You are given text sentences that may or may not contain falsifiable claims.
 A "falsifiable claim" is a statement of fact that can be proven or disproven with evidence.
+
+DO NOT include:
+- Opinions or personal preferences (e.g., "I love pizza")
+- Subjective statements (e.g., "The weather is beautiful")
+- Questions
+- Wishes or hopes
+- Emotional expressions
+- Value judgments
+
+ONLY include statements that:
+- Can be verified with concrete evidence
+- Have a clear true/false outcome
+- Are objective and measurable
+
 Review each sentence below and output ONLY those that qualify as check-worthy claims, 
-separated by newlines. If none qualify, return an empty string.
+separated by newlines. If none qualify, output an empty string (do not output 'None' or any other text).
 
 Sentences:
 {sentences}
@@ -39,6 +53,7 @@ chain = prompt_template | llm
 def extract_claims(text: str) -> List[str]:
     """
     Splits the text into sentences, then uses an LLM to decide which are factual claims.
+    Returns an empty list if no claims are found.
     """
     if not text.strip():
         return []
@@ -51,6 +66,10 @@ def extract_claims(text: str) -> List[str]:
     joined = "\n".join(raw_sentences)
     llm_output = chain.invoke({"sentences": joined})
 
-    # 3. Parse results
-    final_claims = [line.strip() for line in llm_output.split("\n") if line.strip()]
+    # 3. Parse results and filter out any 'None' responses
+    final_claims = [
+        line.strip() 
+        for line in llm_output.split("\n") 
+        if line.strip() and line.strip().lower() != "none"
+    ]
     return final_claims
