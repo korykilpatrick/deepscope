@@ -2,29 +2,29 @@
 
 ## Transcript Ingestion from Firebase
 - Store transcripts in Firebase (Firestore or Cloud Storage).
-- Trigger the processing pipeline when a new transcript is created:
-  - Either use a **Firebase Cloud Function** calling a FastAPI endpoint.
-  - Or have the FastAPI service poll/query for new transcripts.
+- Trigger the processing pipeline when a new transcript is created or updated.
+  - Could use a **Firebase Cloud Function** to call a FastAPI endpoint.
+  - Or periodically poll Firebase for new transcripts.
 
 ## Storage and Preprocessing
-- Retrieve raw text and clean/segment it (remove extraneous characters, split into sentences).
-- Maintain each transcript’s metadata (ID, timestamp, etc.).
-- Optionally queue transcripts for asynchronous processing to avoid blocking the main thread.
+- Retrieve raw text, clean/segment it (remove extraneous characters, timestamps, etc.).
+- Maintain transcript metadata (ID, timestamp, status).
+- Optionally queue transcripts for asynchronous processing to avoid blocking HTTP calls.
 
 ## Processing Pipeline
 1. **Trigger/Fetch**  
    - Detect or poll for new transcripts.
-   - Download the text payload.
+   - Download and clean the text payload.
 
 2. **Queue (Optional)**  
-   - Add the transcript ID to a local or external task queue.
+   - Add transcript references to a task queue (e.g. Celery, Redis).
 
 3. **Preprocess Text**  
-   - Tokenize into sentences, remove noise, ensure consistent formatting.
+   - Tokenize or split into sentences, remove noise, unify formatting.
 
 4. **Ready for Extraction**  
-   - Pass cleaned text to the claim extraction module.
+   - Pass cleaned text into the claim extraction step.
 
 ## Error Handling
-- If fetching or parsing fails, log the issue and mark transcript as "failed" without blocking subsequent tasks.
-- Update transcript status in Firebase (e.g., "in_progress", "processed") to reflect pipeline progress.
+- Log failures (fetching, parsing) and mark transcript as "failed."
+- Update Firebase with status transitions (e.g., "in_progress", "processed").

@@ -1,26 +1,25 @@
 # 4. Truth Verification Pipeline
 
-## Integrating Multiple Fact-Checking APIs
-- **Google Fact Check API**: Checks if any reputable fact-checking source has already assessed a similar claim.
-- **SEC EDGAR**: Compares company financial statements directly from official filings.
-- **Alpha Vantage**: Provides low-cost/free stock prices and market data.
-- (Optional) **Bloomberg / FactSet**: More comprehensive data for paying enterprise customers.
-- For macro stats, consider FRED or other official government data APIs.
+## Integrating Multiple Fact-Checking Methods
+- **LLM-Based Verification**: Prompt a large language model to analyze a claim and check it against known knowledge or reasoning.
+- **External Fact-Check APIs**: For example:
+  - [Google Fact Check Tools API](https://toolbox.google.com/factcheck)
+  - [Factiverse API](https://factiverse.no)
+  - [Parafact](https://parafact.ai)
+  - Or other specialized datasets (e.g., custom knowledge bases).
 
 ## Consensus Logic for Truth Scoring
-1. **Source-by-Source Verification**  
-   - Each API returns numeric data (e.g., revenue amount) or a boolean verdict (true/false).
-   - If an API can’t find relevant data, mark it “no data.”
+1. **Source-by-Source Check**  
+   - Each API returns a partial verdict (supported, refuted, or unknown).
+   - LLM might output a probability score or “true/false/inconclusive.”
 
-2. **Majority Vote or Weighted Scoring**  
-   - Tally true/false from multiple sources.
-   - If sources conflict, label the claim “conflicting evidence” or “low confidence.”
+2. **Weighted or Majority Vote**  
+   - Aggregate results to assign a final label (e.g., “true,” “false,” “unverified/conflicting”).
 
-3. **Handling Missing/Conflicting Information**  
-   - If no data is found, consider the claim “unverified.”
-   - If direct contradictions exist, mark the claim “needs review” or “conflicting.”
+3. **Handling Missing/Conflicting Info**
+   - If no sources have data, label the claim “unverified.”
+   - If some sources confirm and others refute, mark “conflicting” or low confidence.
 
 ## Example
-- Claim: “ACME’s Q1 revenue was $500M.”
-- EDGAR indicates $480M. FactSet also reports $480M.  
-- Both sources say mismatch => final verdict “false,” with a high confidence score.
+- Claim: “Water boils at 105°C at sea level.”
+- LLM or fact-check sources show standard boiling point is ~100°C => verdict “false,” confidence high.

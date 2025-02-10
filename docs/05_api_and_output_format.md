@@ -2,25 +2,23 @@
 
 ## API Endpoints
 - `GET /transcripts/{id}/claims`
-  - Returns all extracted claims and their verifications for a given transcript.
-  - If processing is incomplete, returns status or partial results.
-- (Optional) `GET /claims/{claim_id}`
-  - Retrieves fact-check outcome for a specific claim.
-- (Optional) `POST /check`
-  - Accepts raw text or a single claim; returns immediate verification results (suitable for ad-hoc checks).
+  - Returns extracted claims and verification results for a transcript.
+  - If processing is incomplete, returns partial info or status.
+
+- `POST /check`
+  - Accepts raw text or a single claim and returns immediate verification results (good for ad-hoc checks).
 
 ## Response Schema
-Each claim returns:
-- **claim_text**: The exact statement or sentence.
-- **category**: E.g., “Market Data”, “Company Financials.”
+- **claim_text**: Original statement or sentence.
+- **category**: (optional) The domain label if used.
 - **result**: “true,” “false,” “unverified,” or “conflicting.”
-- **confidence_score**: Numeric or qualitative measure (e.g., 0.0–1.0).
-- **checked_sources**: Array of objects detailing evidence from each data source:
-  - `source_name` (e.g., “AlphaVantage”)
-  - `verification` (match / mismatch / no data)
-  - `evidence` (e.g., the numeric figure or a fact-check result)
-  - `source_url` (link to underlying evidence if available)
-- **explanation**: Concise textual summary of how the verdict was reached.
+- **confidence_score**: Numeric measure (0.0–1.0) or a qualitative measure.
+- **checked_sources**: Array of source-level details:
+  - `source_name`
+  - `verification` (“match,” “mismatch,” “no_data,” etc.)
+  - `evidence` (e.g., a snippet or summary from the source)
+  - `source_url` (if available)
+- **explanation**: Short summary describing the reasoning.
 
 ## Example
 ```json
@@ -28,19 +26,18 @@ Each claim returns:
   "transcript_id": "abc123",
   "claims": [
     {
-      "claim_text": "ACME Corp's Q1 2023 revenue was $500 million.",
-      "category": "Company Financials",
+      "claim_text": "Water boils at 105°C at sea level.",
       "result": "false",
       "confidence_score": 0.9,
       "checked_sources": [
         {
-          "source_name": "SEC EDGAR",
+          "source_name": "Generic FactCheck API",
           "verification": "mismatch",
-          "evidence": "Reported $480 million",
-          "source_url": "https://.../10Q"
+          "evidence": "Data indicates 100°C is standard.",
+          "source_url": "https://example.com/factchecks/water-boiling"
         }
       ],
-      "explanation": "EDGAR shows $480M, so the claim is false."
+      "explanation": "Evidence shows the boiling point is typically 100°C."
     }
   ]
 }
