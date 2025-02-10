@@ -5,12 +5,30 @@
     ├── __init__.py
     ├── __pycache__
     │   ├── __init__.cpython-311.pyc
+    │   ├── __init__.cpython-312.pyc
+    │   ├── api_routes.cpython-312.pyc
+    │   ├── claim_extractor.cpython-311.pyc
+    │   ├── claim_extractor.cpython-312.pyc
+    │   ├── factchecker.cpython-311.pyc
+    │   ├── factchecker.cpython-312.pyc
     │   ├── firebase_interface.cpython-311.pyc
-    │   └── main.cpython-311.pyc
+    │   ├── firebase_interface.cpython-312.pyc
+    │   ├── main.cpython-311.pyc
+    │   ├── main.cpython-312.pyc
+    │   ├── test_claim_extractor.cpython-311.pyc
+    │   ├── verdict_aggregator.cpython-311.pyc
+    │   └── verdict_aggregator.cpython-312.pyc
+    ├── api_routes.py
     ├── claim_extractor.py
+    ├── cli.py
     ├── factchecker.py
     ├── firebase_interface.py
     ├── main.py
+    ├── tests
+    │   ├── __pycache__
+    │   │   └── test_video_routes.cpython-310-pytest-7.1.2.pyc
+    │   ├── test_claim_extractor.py
+    │   └── test_video_routes.py
     └── verdict_aggregator.py
 
-3 directories, 11 files
+5 directories, 27 files
