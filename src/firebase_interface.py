@@ -3,7 +3,7 @@ import re
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 load_dotenv()  # loads variables from .env
 
@@ -87,3 +87,28 @@ def update_transcript_status(transcript_id: str, status: str):
     """
     doc_ref = db.collection('videos').document(transcript_id)
     doc_ref.update({"status": status})
+
+def get_all_videos() -> List[Dict[str, Any]]:
+    """
+    Retrieve all video documents from the videos collection.
+    
+    Returns:
+        List of dictionaries containing video data
+    """
+    videos_ref = db.collection('videos')
+    docs = videos_ref.stream()
+    
+    videos = []
+    for doc in docs:
+        data = doc.to_dict()
+        if data:
+            video = {
+                'video_id': doc.id,
+                'title': data.get('title', ''),
+                'status': data.get('status', 'pending'),
+                'transcript': data.get('transcript', ''),
+                'created_at': data.get('timestamp', '')
+            }
+            videos.append(video)
+    
+    return videos

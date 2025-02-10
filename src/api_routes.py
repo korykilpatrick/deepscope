@@ -1,10 +1,22 @@
 from fastapi import FastAPI, HTTPException, APIRouter
-from .firebase_interface import get_transcript, update_transcript_status
-from .claim_extractor import extract_claims
-from .factchecker import check_fact
-from .verdict_aggregator import aggregate_verdicts
+from typing import List, Dict, Any
+from src.firebase_interface import get_transcript, update_transcript_status, get_all_videos
+from src.claim_extractor import extract_claims
+from src.factchecker import check_fact
+from src.verdict_aggregator import aggregate_verdicts
 
 router = APIRouter()
+
+@router.get("/videos", response_model=List[Dict[str, Any]])
+async def get_videos():
+    """Retrieve all video objects from Firebase."""
+    try:
+        videos = get_all_videos()
+        if not videos:
+            return []
+        return videos
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/videos/{video_id}/raw")
 async def get_raw_transcript(video_id: str):
