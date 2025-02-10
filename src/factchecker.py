@@ -2,69 +2,67 @@ import asyncio
 from typing import Dict, Any, List
 import httpx
 
-# Example constants; in practice, you'd use real endpoints/keys:
-ALPHA_VANTAGE_API_KEY = "YOUR_ALPHA_VANTAGE_KEY"
-EDGAR_BASE_URL = "https://data.sec.gov/submissions/"
-FACTCHECK_BASE_URL = "https://factchecktools.googleapis.com/v1alpha1/"
+"""
+This module calls one or more external fact-check services or an LLM-based approach.
+Below are placeholder async functions to demonstrate the pattern.
+Replace with real calls to:
+  - Google FactCheck Tools
+  - Factiverse
+  - Parafact
+  - or a search-based approach
+"""
 
-async def check_with_alphavantage(claim: str) -> Dict[str, Any]:
+async def check_with_api_1(claim: str) -> Dict[str, Any]:
     """
-    Example stub that queries Alpha Vantage for stock price data if relevant.
+    Stub function simulating a generic external fact-check.
     """
-    # This is an illustrative async request. Fill in real endpoints for alpha vantage.
     await asyncio.sleep(0.1)  # simulate network delay
-    # In a real call, you'd do something like:
-    # url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=XYZ&apikey={ALPHA_VANTAGE_API_KEY}"
-    # async with httpx.AsyncClient() as client:
-    #     resp = await client.get(url)
-    #     data = resp.json()
     return {
-        "source_name": "Alpha Vantage",
-        "verification": "no_data",  # or "match"/"mismatch"
+        "source_name": "External FactCheck API 1",
+        "verification": "no_data",
         "evidence": {},
-        "source_url": "https://www.alphavantage.co/"
+        "source_url": "https://api1.example.com"
     }
 
-async def check_with_edgar(claim: str) -> Dict[str, Any]:
+async def check_with_api_2(claim: str) -> Dict[str, Any]:
     """
-    Example stub for SEC EDGAR checks, e.g., fetching official filings or numerical data.
+    Another stub for a different fact-check or search service.
     """
     await asyncio.sleep(0.1)
     return {
-        "source_name": "SEC EDGAR",
+        "source_name": "External FactCheck API 2",
         "verification": "no_data",
         "evidence": {},
-        "source_url": "https://www.sec.gov/edgar.shtml"
+        "source_url": "https://api2.example.com"
     }
 
-async def check_with_factcheck(claim: str) -> Dict[str, Any]:
+async def check_with_llm(claim: str) -> Dict[str, Any]:
     """
-    Demonstration stub for the Google FactCheck Tools API.
+    Possibly query an LLM for direct verification reasoning. Stub here.
     """
     await asyncio.sleep(0.1)
     return {
-        "source_name": "Google FactCheck",
+        "source_name": "LLM Reasoning",
         "verification": "no_data",
         "evidence": {},
-        "source_url": "https://toolbox.google.com/factcheck"
+        "source_url": ""
     }
 
 async def check_fact(claim: str, category: str = "") -> Dict[str, Any]:
     """
-    Calls relevant async checks in parallel based on the claim's category.
-    The real implementation would dynamically choose sources.
+    Calls relevant async checks in parallel. In real usage, 
+    you might dynamically select sources based on claim content.
     """
-    # For demonstration, we run all calls to show concurrency.
     tasks = [
-        asyncio.create_task(check_with_alphavantage(claim)),
-        asyncio.create_task(check_with_edgar(claim)),
-        asyncio.create_task(check_with_factcheck(claim))
+        asyncio.create_task(check_with_api_1(claim)),
+        asyncio.create_task(check_with_api_2(claim)),
+        asyncio.create_task(check_with_llm(claim))
     ]
     results = await asyncio.gather(*tasks)
 
-    # We'll return them as a list of "checked_sources"
+    # Return the combined results
     return {
         "claim_text": claim,
-        "category": category if category else "unknown",
+        "category": category if category else "generic",
         "checked_sources": results
     }

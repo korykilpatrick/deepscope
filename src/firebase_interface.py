@@ -15,7 +15,7 @@ db = firestore.client()
 
 def clean_transcript_text(text: str) -> str:
     """
-    Remove SRT-like timestamps and extraneous whitespace, returning clean text.
+    Remove possible timestamps or extraneous whitespace from transcripts.
     """
     text = re.sub(r'\d+\n\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}\n', '', text)
     text = re.sub(r'\r', '', text)
@@ -51,14 +51,14 @@ def get_transcript(transcript_id: str) -> Optional[Dict[str, Any]]:
 
 def update_transcript_status(transcript_id: str, status: str):
     """
-    Update the 'status' field in the videos document to reflect processing state.
+    Update the 'status' field in the 'videos' document.
     """
     doc_ref = db.collection('videos').document(transcript_id)
     doc_ref.update({"status": status})
 
 def get_all_videos() -> List[Dict[str, Any]]:
     """
-    Retrieve all documents from the videos collection.
+    Retrieve all documents from the 'videos' collection.
     """
     videos_ref = db.collection('videos')
     docs = videos_ref.stream()
@@ -77,10 +77,8 @@ def get_all_videos() -> List[Dict[str, Any]]:
 
 def store_fact_check_results(video_id: str, claims: List[Dict[str, Any]]):
     """
-    Store fact-check results in the same 'videos' document (or subcollection) for convenience.
+    Store fact-check results in a subcollection 'fact_check_results'.
     """
     doc_ref = db.collection('videos').document(video_id)
-    # Optionally store under a subcollection or directly update the doc:
-    # Using a subcollection here: 'fact_check_results'
     for i, claim_data in enumerate(claims):
         doc_ref.collection('fact_check_results').document(str(i)).set(claim_data)
