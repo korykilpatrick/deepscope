@@ -4,6 +4,7 @@ import httpx
 
 from src.verdict_aggregator import aggregate_verdicts
 
+# can maybe later add in other apis like factiverse, parafact, etc
 # Placeholder helper functions
 def http_get(url: str) -> httpx.Response:
     return httpx.get(url)
@@ -13,17 +14,6 @@ def http_post(url: str, payload: dict) -> httpx.Response:
 
 def parse_json(response: httpx.Response) -> dict:
     return response.json()
-
-def determine_verification(data: dict) -> str:
-    # Dummy logic: if claims exist, consider it a "match", else "mismatch"
-    return "match" if data.get("claims") else "mismatch"
-
-def extract_evidence(data: dict) -> dict:
-    # Dummy logic: return the text from the first claim, if available
-    claims = data.get("claims")
-    if claims and isinstance(claims, list):
-        return claims[0].get("text", "")
-    return ""
 
 def llm_inference(prompt: str) -> str:
     # Dummy LLM inference returning a basic explanation
@@ -41,49 +31,42 @@ async def async_call(func, claim: str) -> Dict:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, func, claim)
 
-# Function to call Google Fact Check Tools API
+# New function using the Google Fact Check Tools API (Pages endpoint)
 def check_with_google_factcheck(claim: str) -> Dict:
-    url = f"https://factchecktools.googleapis.com/v1alpha1/claims:search?query={claim}&key=YOUR_GOOGLE_API_KEY"
+    """
+    Uses the Google Fact Check Tools API Pages endpoint to attempt to verify a claim.
+    Fetches all available fact-check pages and returns a "match" if any page's
+    claimReview contains a title or textualRating that includes the claim text.
+    """
+    url = f"https://factchecktools.googleapis.com/v1alpha1/pages?key=YOUR_GOOGLE_API_KEY"
     response = http_get(url)
     if response.status_code == 200:
         data = parse_json(response)
+        pages = data.get("pages", [])
+        for page in pages:
+            claim_reviews = page.get("claimReview", [])
+            for review in claim_reviews:
+                title = review.get("title", "").lower()
+                textual_rating = review.get("textualRating", "").lower()
+                if claim.lower() in title or claim.lower() in textual_rating:
+                    return {
+                        "source_name": "Google Fact Check Tools Pages",
+                        "verification": "match",
+                        "evidence": review,
+                        "source_url": page.get("pageUrl", "")
+                    }
         return {
-            "source_name": "Google Fact Check Tools",
-            "verification": determine_verification(data),
-            "evidence": extract_evidence(data),
-            "source_url": "https://developers.google.com/fact-check/tools/api"
+            "source_name": "Google Fact Check Tools Pages",
+            "verification": "no_data",
+            "evidence": {},
+            "source_url": ""
         }
-    return {"source_name": "Google Fact Check Tools", "verification": "no_data", "evidence": {}, "source_url": ""}
-
-# Function to call Factiverse API
-def check_with_factiverse(claim: str) -> Dict:
-    url = "https://api.factiverse.no/verify"
-    payload = {"claim": claim, "apikey": "YOUR_FACTIVERSE_API_KEY"}
-    response = http_post(url, payload)
-    if response.status_code == 200:
-        data = parse_json(response)
-        return {
-            "source_name": "Factiverse",
-            "verification": determine_verification(data),
-            "evidence": extract_evidence(data),
-            "source_url": "https://factiverse.no"
-        }
-    return {"source_name": "Factiverse", "verification": "no_data", "evidence": {}, "source_url": ""}
-
-# Function to call Parafact API
-def check_with_parafact(claim: str) -> Dict:
-    url = "https://api.parafact.ai/verify"
-    payload = {"claim": claim, "apikey": "YOUR_PARAFact_API_KEY"}
-    response = http_post(url, payload)
-    if response.status_code == 200:
-        data = parse_json(response)
-        return {
-            "source_name": "Parafact",
-            "verification": determine_verification(data),
-            "evidence": extract_evidence(data),
-            "source_url": "https://parafact.ai"
-        }
-    return {"source_name": "Parafact", "verification": "no_data", "evidence": {}, "source_url": ""}
+    return {
+        "source_name": "Google Fact Check Tools Pages",
+        "verification": "no_data",
+        "evidence": {},
+        "source_url": ""
+    }
 
 # Function for LLM-based reasoning as fallback or supplement
 def check_with_llm(claim: str) -> Dict:
@@ -96,12 +79,10 @@ def check_with_llm(claim: str) -> Dict:
         "source_url": ""
     }
 
-# Main fact-check function calling all methods concurrently
+# Main fact-check function calling only the Google API and LLM fallback concurrently.
 async def check_fact(claim: str) -> Dict:
     tasks = [
         async_call(check_with_google_factcheck, claim),
-        async_call(check_with_factiverse, claim),
-        async_call(check_with_parafact, claim),
         async_call(check_with_llm, claim)
     ]
     results = await asyncio.gather(*tasks)
