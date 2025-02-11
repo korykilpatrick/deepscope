@@ -96,14 +96,21 @@ Each claim must be independently verifiable without any pronouns or relative ref
 """
 )
 
-llm = OpenAI(
+# I want to use different models for the extract and the coherent chains
+extract_llm = OpenAI(
     api_key=settings.OPENAI_API_KEY,
     temperature=0,
-    model="gpt-3.5-turbo-instruct"
+    model="gpt-4o"
 )
 
-extract_chain = extract_claims_prompt | llm
-coherent_chain = make_claims_coherent_prompt | llm
+coherent_llm = OpenAI(
+    api_key=settings.OPENAI_API_KEY,
+    temperature=0,
+    model="o3-mini"
+)
+
+extract_chain = extract_claims_prompt | extract_llm
+coherent_chain = make_claims_coherent_prompt | coherent_llm
 
 def split_compound_claim(claim: str) -> List[str]:
     """
