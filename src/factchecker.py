@@ -1,8 +1,14 @@
 import asyncio
 from typing import Dict, Any, List
 import httpx
+from dotenv import load_dotenv
+import os
+import time
+from random import uniform
 
 from src.verdict_aggregator import aggregate_verdicts
+
+load_dotenv()
 
 # can maybe later add in other apis like factiverse, parafact, etc
 # Placeholder helper functions
@@ -31,42 +37,78 @@ async def async_call(func, claim: str) -> Dict:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, func, claim)
 
-# New function using the Google Fact Check Tools API (Pages endpoint)
+def retry_with_backoff(func, max_retries=3):
+    """Retry a function with exponential backoff"""
+    def wrapper(*args, **kwargs):
+        for attempt in range(max_retries):
+            try:
+                # Add a small random delay to prevent concurrent requests
+                time.sleep(uniform(0.5, 1.5))
+                result = func(*args, **kwargs)
+                if result.status_code != 403:  # If not rate limited, return
+                    return result
+                # If rate limited, wait before retry
+                time.sleep((2 ** attempt) + uniform(0, 1))
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                time.sleep((2 ** attempt) + uniform(0, 1))
+        return result
+    return wrapper
+
+# New function using the Google Fact Check Tools API (Claims endpoint)
 def check_with_google_factcheck(claim: str) -> Dict:
     """
-    Uses the Google Fact Check Tools API Pages endpoint to attempt to verify a claim.
-    Fetches all available fact-check pages and returns a "match" if any page's
-    claimReview contains a title or textualRating that includes the claim text.
+    Uses the Google Fact Check Tools API Claims endpoint to attempt to verify a claim.
+    Returns a structured response containing the verification result and supporting evidence.
     """
-    url = f"https://factchecktools.googleapis.com/v1alpha1/pages?key=YOUR_GOOGLE_API_KEY"
-    response = http_get(url)
-    if response.status_code == 200:
-        data = parse_json(response)
-        pages = data.get("pages", [])
-        for page in pages:
-            claim_reviews = page.get("claimReview", [])
-            for review in claim_reviews:
-                title = review.get("title", "").lower()
-                textual_rating = review.get("textualRating", "").lower()
-                if claim.lower() in title or claim.lower() in textual_rating:
-                    return {
-                        "source_name": "Google Fact Check Tools Pages",
-                        "verification": "match",
-                        "evidence": review,
-                        "source_url": page.get("pageUrl", "")
-                    }
+    url = f"https://factchecktools.googleapis.com/v1alpha1/claims:search"
+    params = {
+        "key": os.getenv('GOOGLE_API_KEY'),
+        "query": claim,
+        "languageCode": "en-US"
+    }
+    try:
+        # Wrap the request in retry logic
+        get_with_retry = retry_with_backoff(lambda: httpx.get(url, params=params))
+        response = get_with_retry()
+        
+        print(f"\nMaking request to: {url}")
+        print(f"With params: {params}")
+        print(f"Status code: {response.status_code}")
+        print(f"Response headers: {response.headers}")
+        print(f"Response body: {response.text}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            claims = data.get("claims", [])
+            if claims:
+                # Get the first relevant claim
+                claim_data = claims[0]
+                return {
+                    "source_name": "Google Fact Check Tools Claims",
+                    "verification": "match",
+                    "evidence": {
+                        "claim_review": claim_data.get("claimReview", []),
+                        "text": claim_data.get("text", ""),
+                        "claimant": claim_data.get("claimant", "")
+                    },
+                    "source_url": claim_data.get("claimReview", [{}])[0].get("url", "")
+                }
         return {
-            "source_name": "Google Fact Check Tools Pages",
+            "source_name": "Google Fact Check Tools Claims",
             "verification": "no_data",
-            "evidence": {},
+            "evidence": {"api_response": response.text if response.status_code == 200 else f"Status code: {response.status_code}"},
             "source_url": ""
         }
-    return {
-        "source_name": "Google Fact Check Tools Pages",
-        "verification": "no_data",
-        "evidence": {},
-        "source_url": ""
-    }
+    except Exception as e:
+        print(f"Error in Google Fact Check API call: {str(e)}")
+        return {
+            "source_name": "Google Fact Check Tools Claims",
+            "verification": "no_data",
+            "evidence": {"error": str(e)},
+            "source_url": ""
+        }
 
 # Function for LLM-based reasoning as fallback or supplement
 def check_with_llm(claim: str) -> Dict:
