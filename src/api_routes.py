@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Dict, Any
 import asyncio
+from pydantic import BaseModel
 
 from src.firebase_interface import (
     get_transcript,
@@ -101,3 +102,23 @@ async def process_transcript(video_id: str, background_tasks: BackgroundTasks):
         "video_id": video_id,
         "status": "started_processing"
     }
+
+class TextInput(BaseModel):
+    text: str
+
+@router.post("/extract-claims", response_model=Dict[str, List[str]])
+async def extract_claims_from_text(input_data: TextInput):
+    """
+    Extract claims from raw text input.
+    
+    Args:
+        input_data: TextInput object containing the text to analyze
+        
+    Returns:
+        Dictionary containing list of extracted claims
+    """
+    try:
+        extracted_claims = extract_claims(input_data.text)
+        return {"claims": extracted_claims if extracted_claims else []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
