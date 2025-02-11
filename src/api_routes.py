@@ -71,17 +71,30 @@ async def process_claims_in_background(video_id: str,
     if not transcript:
         return
 
+    segments = transcript.get("segments", [])
     result = await claim_svc.process_text(transcript.get("text", ""))
+
     to_store = []
     for claim, verdict in zip(result["claims"], result["verdicts"]):
+        claim_start = ""
+        claim_end = ""
+        # Simple substring match to find a segment
+        for seg in segments:
+            if claim in seg["text"]:
+                claim_start = seg["start"]
+                claim_end = seg["end"]
+                break
+
         to_store.append({
             "claim_text": claim,
             "checked_sources": verdict.get("checked_sources", []),
-            "final_verdict": verdict.get("verdict", {}).get("status", "unknown")
+            "final_verdict": verdict.get("verdict", {}).get("status", "unknown"),
+            "claim_start": claim_start,
+            "claim_end": claim_end
         })
 
     transcript_svc.store_fact_check_results(video_id, to_store)
-    final_status = result['final_result'].get('status', 'unknown')
+    final_status = result["final_result"].get("status", "unknown")
     transcript_svc.update_transcript_status(video_id, f"processed_with_verdict_{final_status}")
 
 @router.post("/videos/{video_id}/process")

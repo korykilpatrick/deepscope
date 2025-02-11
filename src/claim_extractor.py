@@ -34,7 +34,7 @@ ONLY include statements that:
 Extract all potential claims, even if they use pronouns or lack full context.
 Split compound claims into separate statements.
 Remove any subjective commentary or reactions.
-Remove any leading or trailing punctuation.
+Remove any leading or trailing punctuation (e.g. each newline should start with the first character of the sentence).
 
 Review each sentence below and output ONLY the factual claims,
 separated by newlines. If none qualify, output an empty string.
