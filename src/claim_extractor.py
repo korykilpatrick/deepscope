@@ -1,13 +1,12 @@
-import os
 import spacy
 from typing import List
-from dotenv import load_dotenv
 from datetime import datetime
 
 from langchain_openai import OpenAI
 from langchain.prompts import PromptTemplate
 
-load_dotenv()
+from .config import settings  # use centralized configuration
+
 nlp = spacy.load("en_core_web_sm")
 
 # First stage: Extract potential claims
@@ -22,6 +21,7 @@ DO NOT include:
 - Subjective statements (e.g., "The weather is beautiful")
 - Questions or rhetorical additions (e.g., "isn't that wild?", "can you believe it?")
 - Wishes or hopes
+- Advice or recommendations (e.g., "You should buy this product")
 - Emotional expressions
 - Value judgments
 - Commentary or reactions
@@ -34,6 +34,7 @@ ONLY include statements that:
 Extract all potential claims, even if they use pronouns or lack full context.
 Split compound claims into separate statements.
 Remove any subjective commentary or reactions.
+Remove any leading or trailing punctuation.
 
 Review each sentence below and output ONLY the factual claims,
 separated by newlines. If none qualify, output an empty string.
@@ -95,12 +96,8 @@ Each claim must be independently verifiable without any pronouns or relative ref
 """
 )
 
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY is not set")
-
 llm = OpenAI(
-    api_key=api_key,
+    api_key=settings.OPENAI_API_KEY,
     temperature=0,
     model="gpt-3.5-turbo-instruct"
 )
@@ -119,30 +116,27 @@ def split_compound_claim(claim: str) -> List[str]:
     if not any(token.dep_ == "cc" for token in doc):
         return [claim]
     
-    # Use spaCy to identify independent clauses connected by coordinating conjunctions
     independent_claims = []
     current_claim = []
     
     for token in doc:
-        if token.dep_ == "cc" and len(current_claim) > 0:
-            # Complete the current claim
-            claim_text = " ".join([t.text for t in current_claim]).strip()
+        if token.dep_ == "cc" and current_claim:
+            claim_text = " ".join(t.text for t in current_claim).strip()
             if claim_text:
                 independent_claims.append(claim_text)
             current_claim = []
         else:
             current_claim.append(token)
     
-    # Add the last claim
     if current_claim:
-        claim_text = " ".join([t.text for t in current_claim]).strip()
+        claim_text = " ".join(t.text for t in current_claim).strip()
         if claim_text:
             independent_claims.append(claim_text)
     
-    # If splitting failed or produced invalid results, return original claim
+    # If splitting produced no useful results, return the original claim
     if not independent_claims or len(independent_claims) == 1:
         return [claim]
-        
+    
     return independent_claims
 
 def extract_claims(text: str) -> List[str]:
@@ -153,7 +147,7 @@ def extract_claims(text: str) -> List[str]:
     """
     if not text.strip():
         return []
-
+    
     # Stage 1: Extract potential claims
     initial_claims = extract_chain.invoke({"sentences": text})
     raw_claims = [

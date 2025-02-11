@@ -5,6 +5,6 @@
 cd "$(dirname "$0")/.."
 
 # Run tree while ignoring common config files and docs; output to project_tree.txt
-tree -I "docs|venv|config|scripts|README.md|LICENSE|project_tree.txt" > project_tree.txt
+tree -I "docs|venv|config|scripts|README.md|LICENSE|project_tree.txt|__pycache__|*.pyc" > project_tree.txt
 
 echo "Project tree generated in project_tree.txt"

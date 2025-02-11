@@ -1,11 +1,12 @@
 from fastapi import FastAPI
-from src.api_routes import router
+from .api_routes import router
+from .dependencies import get_logger_dep
 
 app = FastAPI(title="Fact-Checking Service")
 
-app.include_router(router)
+@app.on_event("startup")
+async def startup_event():
+    logger = get_logger_dep()
+    logger.info({"event": "startup", "message": "App starting..."})
 
-# If needed, add lifecycle events:
-# @app.on_event("startup")
-# async def startup_event():
-#     pass
+app.include_router(router)

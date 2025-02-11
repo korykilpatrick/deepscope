@@ -1,35 +1,29 @@
 import asyncio
-from typing import Dict, Any, List, Protocol
-import httpx
-from dotenv import load_dotenv
-import os
 import time
-from random import uniform
-from datetime import datetime
 import json
+import httpx
+from random import uniform
+from typing import List, Dict, Any, Protocol
+from datetime import datetime
 
-# Import the new OpenAI client class
-from openai import OpenAI
+from openai import OpenAI  # Use the new OpenAI client interface
 
-from src.verdict_aggregator import aggregate_verdicts
+from ..verdict_aggregator import aggregate_verdicts
 
-load_dotenv()
-
+# Protocol to define a common interface (optional)
 class FactCheckSource(Protocol):
     def check_claim(self, claim: str) -> Dict[str, Any]:
-        """Check a claim and return structured results"""
         pass
 
 class GoogleFactCheckAPI:
-    """Google Fact Check Tools API implementation"""
-    def __init__(self):
-        self.api_key = os.getenv('GOOGLE_API_KEY')
+    """Google Fact Check Tools API implementation."""
+    def __init__(self, api_key: str):
+        self.api_key = api_key
         if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY not set in environment")
-
+            raise ValueError("Google API key not provided")
+    
     @staticmethod
     def retry_with_backoff(func, max_retries=3):
-        """Retry a function with exponential backoff"""
         def wrapper(*args, **kwargs):
             for attempt in range(max_retries):
                 try:
@@ -46,15 +40,9 @@ class GoogleFactCheckAPI:
         return wrapper
 
     def _interpret_rating(self, textual_rating: str) -> str:
-        """
-        Interpret the textual rating from Google Fact Check API.
-        Returns one of: "match", "mismatch", "no_data", or "conflicting".
-        """
         if not textual_rating:
             return "no_data"
-
         rating_lower = textual_rating.lower()
-
         false_indicators = [
             "incorrect", "false", "untrue", "misleading", "wrong",
             "inaccurate", "debunked", "no evidence", "not true", "mostly false"
@@ -63,29 +51,21 @@ class GoogleFactCheckAPI:
             "correct", "true", "accurate", "verified", "confirmed",
             "supported by evidence", "factual", "mostly true"
         ]
-
         for indicator in false_indicators:
             if indicator in rating_lower:
                 return "mismatch"
-
         for indicator in true_indicators:
             if indicator in rating_lower:
                 return "match"
-
         return "no_data"
 
     def check_claim(self, claim: str) -> Dict[str, Any]:
-        """
-        Query Google Fact Check Tools API for all relevant claim entries and
-        produce a single verification by combining them. Also include all reviews in evidence.
-        """
         url = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
         params = {
             "key": self.api_key,
             "query": claim,
             "languageCode": "en-US"
         }
-
         def no_data_result(api_response_text=""):
             return {
                 "source_name": "Google Fact Check Tools Claims",
@@ -93,23 +73,19 @@ class GoogleFactCheckAPI:
                 "evidence": {"api_response": api_response_text},
                 "source_url": ""
             }
-
         try:
             get_with_retry = self.retry_with_backoff(lambda: httpx.get(url, params=params))
             response = get_with_retry()
             if response.status_code != 200:
                 return no_data_result(f"Status code: {response.status_code}")
-
             data = response.json()
-            claims = data.get("claims", [])
-            if not claims:
+            claims_data = data.get("claims", [])
+            if not claims_data:
                 return no_data_result("No claims returned by Google")
-
             all_reviews = []
             match_count = 0
             mismatch_count = 0
-
-            for item in claims:
+            for item in claims_data:
                 reviews = item.get("claimReview", [])
                 for rev in reviews:
                     textual_rating = rev.get("textualRating", "")
@@ -125,10 +101,8 @@ class GoogleFactCheckAPI:
                         match_count += 1
                     elif interpreted == "mismatch":
                         mismatch_count += 1
-
             if not all_reviews:
                 return no_data_result("No claimReview data found")
-
             if match_count == 0 and mismatch_count == 0:
                 final_verification = "no_data"
             elif match_count > 0 and mismatch_count == 0:
@@ -137,16 +111,12 @@ class GoogleFactCheckAPI:
                 final_verification = "mismatch"
             else:
                 final_verification = "conflicting"
-
             return {
                 "source_name": "Google Fact Check Tools Claims",
                 "verification": final_verification,
-                "evidence": {
-                    "claim_reviews": all_reviews
-                },
+                "evidence": {"claim_reviews": all_reviews},
                 "source_url": ""
             }
-
         except Exception as e:
             return {
                 "source_name": "Google Fact Check Tools Claims",
@@ -156,12 +126,11 @@ class GoogleFactCheckAPI:
             }
 
 class LLMFactCheckAPI:
-    """LLM-based fact checker using GPT-4 with the new OpenAI API interface"""
-    def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
+    """LLM-based fact checker using GPT-4 with the new OpenAI API interface."""
+    def __init__(self, api_key: str):
+        self.api_key = api_key
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY not set in environment")
-        # Instantiate the new OpenAI client
+            raise ValueError("OPENAI_API_KEY not provided")
         self.client = OpenAI(api_key=self.api_key)
 
     def check_claim(self, claim: str) -> Dict[str, Any]:
@@ -211,16 +180,17 @@ class LLMFactCheckAPI:
                 "source_url": ""
             }
 
-class FactChecker:
+class FactCheckerService:
     """
     Hybrid fact checker that first uses an LLM-based check.
     If the LLM is sufficiently confident (confidence >= threshold),
-    its result is returned along with any reference links. Otherwise,
-    the system falls back to using Google Fact Check Tools.
+    its result is returned along with any reference links.
+    Otherwise, the system falls back to using Google Fact Check Tools.
     """
-    def __init__(self):
-        self.llm_source = LLMFactCheckAPI()
-        self.google_source = GoogleFactCheckAPI()
+    def __init__(self, openai_api_key: str, google_api_key: str, logger):
+        self.llm_source = LLMFactCheckAPI(openai_api_key)
+        self.google_source = GoogleFactCheckAPI(google_api_key)
+        self.logger = logger
         self.llm_confidence_threshold = 0.8
 
     async def _check_llm(self, claim: str) -> Dict[str, Any]:
@@ -237,8 +207,7 @@ class FactChecker:
         if confidence >= self.llm_confidence_threshold:
             return llm_result
         else:
-            google_result = await self._check_google(claim)
-            return google_result
+            return await self._check_google(claim)
 
     async def check_facts(self, claims: List[str]) -> Dict[str, Any]:
         processing_times = {}
@@ -254,14 +223,3 @@ class FactChecker:
                 "source_context": ""
             })
         return aggregate_verdicts(claims_results, processing_times)
-
-# Create a global instance for external use
-fact_checker = FactChecker()
-
-async def check_fact(claim: str) -> Dict[str, Any]:
-    """Public interface for fact checking a single claim"""
-    return await fact_checker.check_fact(claim)
-
-async def check_facts(claims: List[str]) -> Dict[str, Any]:
-    """Public interface for fact checking multiple claims"""
-    return await fact_checker.check_facts(claims)
