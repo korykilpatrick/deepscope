@@ -8,7 +8,7 @@ from typing import Dict, Any
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from factchecker import check_fact, check_with_google_factcheck
+from factchecker import GoogleFactCheckAPI, FactChecker, check_fact
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -16,9 +16,11 @@ load_dotenv()
 
 class TestFactChecker(unittest.TestCase):
     def setUp(self):
-        """Verify environment is properly configured"""
+        """Set up test environment"""
         self.api_key = os.getenv('GOOGLE_API_KEY')
         self.assertTrue(self.api_key is not None, "GOOGLE_API_KEY not found in environment variables")
+        self.google_api = GoogleFactCheckAPI()
+        self.fact_checker = FactChecker()
 
     def assertValidFactCheckResponse(self, result: Dict[str, Any], msg: str = ""):
         """Helper method to validate fact check response structure"""
@@ -33,7 +35,7 @@ class TestFactChecker(unittest.TestCase):
     def test_google_factcheck_direct(self):
         """Test direct Google Fact Check API with a known false claim"""
         test_claim = "The Earth is flat"
-        result = check_with_google_factcheck(test_claim)
+        result = self.google_api.check_claim(test_claim)
         print(f"\nTesting claim: '{test_claim}'")
         print("Result:", json.dumps(result, indent=2))
         print("--------------------------------")
@@ -42,7 +44,7 @@ class TestFactChecker(unittest.TestCase):
     def test_google_factcheck_true_claim(self):
         """Test with a known true claim"""
         test_claim = "The Earth orbits around the Sun"
-        result = check_with_google_factcheck(test_claim)
+        result = self.google_api.check_claim(test_claim)
         print(f"\nTesting claim: '{test_claim}'")
         print("Result:", json.dumps(result, indent=2))
         print("--------------------------------")
@@ -51,7 +53,7 @@ class TestFactChecker(unittest.TestCase):
     def test_google_factcheck_ambiguous_claim(self):
         """Test with an ambiguous or complex claim"""
         test_claim = "Climate change is causing sea levels to rise"
-        result = check_with_google_factcheck(test_claim)
+        result = self.google_api.check_claim(test_claim)
         print(f"\nTesting claim: '{test_claim}'")
         print("Result:", json.dumps(result, indent=2))
         print("--------------------------------")
@@ -61,6 +63,7 @@ class TestFactChecker(unittest.TestCase):
         """Test the complete fact-checking pipeline"""
         test_claim = "The Earth is flat"
         result = await check_fact(test_claim)
+        
         # Validate overall structure
         self.assertIsInstance(result, dict)
         self.assertIn("claim_text", result)
