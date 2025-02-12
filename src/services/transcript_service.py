@@ -80,16 +80,43 @@ class TranscriptService:
                 })
         return videos
 
+    def _convert_to_plain_types(self, data: Any) -> Any:
+        """Recursively convert Pydantic models and special types to plain Python types."""
+        # Handle Pydantic models
+        if hasattr(data, 'model_dump'):
+            return self._convert_to_plain_types(data.model_dump())
+        
+        # Handle dictionaries
+        if isinstance(data, dict):
+            return {k: self._convert_to_plain_types(v) for k, v in data.items()}
+        
+        # Handle lists/tuples
+        if isinstance(data, (list, tuple)):
+            return [self._convert_to_plain_types(item) for item in data]
+        
+        # Convert HttpUrl to string
+        if hasattr(data, '__class__') and data.__class__.__name__ == 'HttpUrl':
+            return str(data)
+            
+        return data
+
     def store_fact_check_results(self, video_id: str, claims: List[Dict[str, Any]]):
         doc_ref = self.db.collection('videos').document(video_id)
         for i, item in enumerate(claims):
-            fact_check_doc = item["fact_check_doc"]   # { claim_text, start_time, end_time }
-            sources = item.get("sources", [])
-
             # Create a doc in 'fact_check_results' subcollection
             claim_ref = doc_ref.collection('fact_check_results').document(str(i))
-            claim_ref.set(fact_check_doc)
+            
+            # Store the claim data
+            claim_data = {
+                "claim_text": item["claim_text"],
+                "start_time": item["start_time"],
+                "end_time": item["end_time"]
+            }
+            claim_ref.set(claim_data)
 
             # Store each source in its own doc
+            sources = item.get("sources", [])
             for j, source_data in enumerate(sources):
-                claim_ref.collection('sources').document(str(j)).set(source_data)
+                # Convert all special types to plain Python types
+                plain_source_data = self._convert_to_plain_types(source_data)
+                claim_ref.collection('sources').document(str(j)).set(plain_source_data)
