@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from typing import List, Dict, Any
+from datetime import datetime
 
 from .dependencies import (
     get_firebase_db,
@@ -9,6 +10,7 @@ from .dependencies import (
 from .services.transcript_service import TranscriptService
 from .services.claim_service import ClaimService
 from .chains.base import FullFactCheckingChain
+from .models.schemas import Evidence, FactCheckSource
 from pydantic import BaseModel, Field
 
 router = APIRouter()
@@ -80,47 +82,14 @@ async def process_claims_in_background(
         start_time = claims[i].get("start_time", "")
         end_time = claims[i].get("end_time", "")
 
-        # Top-level fact-check doc with basic claim info
+        # Store the fact check results using the new Pydantic models
         fact_check_doc = {
             "claim_text": claim_text,
             "start_time": start_time,
-            "end_time": end_time
+            "end_time": end_time,
+            "sources": [source.model_dump() for source in claim_data.get("sources", [])]
         }
-
-        # LLM source with all returned metadata
-        llm_source = {
-            "source_name": "LLM Fact Checker",
-            "verification": claim_data.get("llm_verification", "no_data"),
-            "confidence": claim_data.get("llm_confidence", 0.0),
-            "type": "llm",
-            "explanation": claim_data.get("llm_explanation", ""),
-            "reference_links": claim_data.get("llm_reference_links", [])
-        }
-
-        # Google source with full evidence from the API
-        google_source = {
-            "source_name": "Google Fact Check Tools",
-            "verification": claim_data.get("google_verification", "no_data"),
-            "confidence": claim_data.get("google_confidence", 0.0),
-            "type": "google",
-            "evidence": claim_data.get("google_evidence", {})
-        }
-
-        # Convert each Google claim review into its own source doc, preserving all metadata
-        google_reviews = claim_data.get("google_evidence", {}).get("claim_reviews", [])
-        google_review_sources = []
-        for rev in google_reviews:
-            rev_source = rev.copy()
-            rev_source["type"] = "google_review"
-            rev_source["source_name"] = "Google Fact Check Tools Claims"
-            google_review_sources.append(rev_source)
-
-        all_sources = [llm_source, google_source] + google_review_sources
-
-        to_store.append({
-            "fact_check_doc": fact_check_doc,
-            "sources": all_sources
-        })
+        to_store.append(fact_check_doc)
 
     transcript_svc.store_fact_check_results(video_id, to_store)
     transcript_svc.update_transcript_status(video_id, "processed")
@@ -163,18 +132,28 @@ class ClaimRequest(BaseModel):
 class BatchClaimRequest(BaseModel):
     claims: List[ClaimRequest] = Field(..., min_items=1)
 
-@router.post("/check-claim")
+class FactCheckResponse(BaseModel):
+    claim_text: str
+    sources: List[FactCheckSource]
+
+class BatchFactCheckResponse(BaseModel):
+    results: List[FactCheckResponse]
+
+@router.post("/check-claim", response_model=FactCheckResponse)
 async def verify_claim(
     request: ClaimRequest,
     fact_checker=Depends(get_fact_checker_service)
 ):
     try:
         results = await fact_checker.check_facts([request.text])
-        return results[0] if results else {}
+        return results[0] if results else {
+            "claim_text": request.text,
+            "sources": []
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing claim: {str(e)}")
 
-@router.post("/check-claims")
+@router.post("/check-claims", response_model=BatchFactCheckResponse)
 async def verify_claims(
     request: BatchClaimRequest,
     fact_checker=Depends(get_fact_checker_service)
@@ -182,7 +161,7 @@ async def verify_claims(
     try:
         claims = [c.text for c in request.claims]
         results = await fact_checker.check_facts(claims)
-        return results
+        return {"results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing claims: {str(e)}")
 

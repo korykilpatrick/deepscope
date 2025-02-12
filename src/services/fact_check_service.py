@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Protocol
 from datetime import datetime
 
 from openai import OpenAI  # Use the new OpenAI client interface
+from ..models.schemas import Evidence, FactCheckSource as FactCheckResult  # Import new models
 
 class FactCheckSource(Protocol):
     def check_claim(self, claim: str) -> Dict[str, Any]:
@@ -121,53 +122,123 @@ class GoogleFactCheckAPI:
             }
 
 class LLMFactCheckAPI:
-    """LLM-based fact checker using GPT-4 with the new OpenAI API interface."""
+    """GPT-4 based fact checker using the OpenAI API interface."""
     def __init__(self, api_key: str):
         self.api_key = api_key
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY not provided")
         self.client = OpenAI(api_key=self.api_key)
+        self.model = "gpt-4"  # Store the model name for reference
 
     def check_claim(self, claim: str) -> Dict[str, Any]:
-        prompt = (
-            "You are a fact-checking assistant. Evaluate the following claim for its truthfulness. "
-            "Return your response as a JSON object with keys 'verdict' ('true', 'false', 'uncertain'), "
-            "'confidence' (0 to 1), 'explanation', and 'reference_links' (array of URLs). "
-            f"Claim: {claim}"
-        )
+        system_prompt = """You are a reliable fact-checking assistant. Your task is to evaluate claims for truthfulness and return results in a specific format.
+
+For each claim, you must return a JSON object with the following structure that matches our Pydantic models:
+
+{
+    "verification": string,  // Must be one of: "match" (true), "mismatch" (false), "no_data" (uncertain), "conflicting"
+    "confidence": float,    // Value between 0 and 1
+    "evidence": {
+        "summary": string,  // Detailed explanation of your verification
+        "reference_links": [string],  // List of URLs to supporting evidence
+    }
+}
+
+Guidelines:
+- verification: Use "match" for true claims, "mismatch" for false claims, "no_data" for uncertain claims
+- confidence: Express your certainty level (0.9+ for very certain, 0.5-0.8 for moderately certain, <0.5 for uncertain)
+- summary: Provide a clear, detailed explanation of your reasoning
+- reference_links: Include relevant, authoritative sources when possible
+
+Example responses:
+
+1. For a verified true claim:
+{
+    "verification": "match",
+    "confidence": 0.95,
+    "evidence": {
+        "summary": "This claim is verified true based on multiple reliable sources. The World Health Organization's 2023 report confirms that regular exercise reduces the risk of cardiovascular disease by 30-40%.",
+        "reference_links": [
+            "https://www.who.int/publications/health-benefits-exercise-2023",
+            "https://www.ncbi.nlm.nih.gov/studies/exercise-benefits"
+        ]
+    }
+}
+
+2. For a verified false claim:
+{
+    "verification": "mismatch",
+    "confidence": 0.98,
+    "evidence": {
+        "summary": "This claim is demonstrably false. NASA and multiple space agencies have provided extensive photographic and scientific evidence that the Earth is spherical, not flat.",
+        "reference_links": [
+            "https://nasa.gov/earth-observations",
+            "https://science.nasa.gov/earth-shape-evidence"
+        ]
+    }
+}
+
+3. For an uncertain or unverifiable claim:
+{
+    "verification": "no_data",
+    "confidence": 0.3,
+    "evidence": {
+        "summary": "There is insufficient evidence to verify or refute this claim. While some preliminary studies exist, they are not conclusive and more research is needed.",
+        "reference_links": []
+    }
+}
+
+4. For a claim with conflicting evidence:
+{
+    "verification": "conflicting",
+    "confidence": 0.5,
+    "evidence": {
+        "summary": "There are credible sources supporting and refuting this claim. Study A suggests the treatment is effective, while Study B shows no significant benefits. More research is needed to resolve this contradiction.",
+        "reference_links": [
+            "https://medical-journal.com/study-a-results",
+            "https://health-research.org/study-b-findings"
+        ]
+    }
+}"""
+
+        user_prompt = f"Please evaluate this claim and provide your assessment in the specified JSON format:\n\nClaim: {claim}"
+
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4",
+                model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a reliable fact-checker."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
                 temperature=0
             )
             message_content = response.choices[0].message.content
             result_json = json.loads(message_content)
-            verdict = result_json.get("verdict", "uncertain").lower()
-            mapping = {"true": "match", "false": "mismatch", "uncertain": "no_data"}
-            verification = mapping.get(verdict, "no_data")
-            confidence = result_json.get("confidence", 0)
-            explanation = result_json.get("explanation", "")
-            reference_links = result_json.get("reference_links", [])
+            
+            # Ensure the response matches our expected format
+            if not all(k in result_json for k in ["verification", "confidence", "evidence"]):
+                raise ValueError("Invalid response format from LLM")
+            if not all(k in result_json["evidence"] for k in ["summary", "reference_links"]):
+                raise ValueError("Invalid evidence format from LLM")
+                
             return {
-                "source_name": "LLM Fact Checker",
-                "verification": verification,
+                "source_name": self.model,  # Just return the model name
+                "verification": result_json["verification"],
                 "evidence": {
-                    "explanation": explanation,
-                    "reference_links": reference_links,
-                    "confidence": confidence
-                },
-                "source_url": ""
+                    "explanation": result_json["evidence"]["summary"],
+                    "reference_links": result_json["evidence"]["reference_links"],
+                    "confidence": result_json["confidence"]
+                }
             }
         except Exception as e:
             return {
-                "source_name": "LLM Fact Checker",
+                "source_name": self.model,  # Just return the model name
                 "verification": "no_data",
-                "evidence": {"error": str(e), "confidence": 0},
-                "source_url": ""
+                "evidence": {
+                    "explanation": f"Error processing with {self.model}: {str(e)}",
+                    "reference_links": [],
+                    "confidence": 0.0
+                }
             }
 
 class FactCheckerService:
@@ -193,29 +264,68 @@ class FactCheckerService:
         llm_res = await self._check_llm(claim)
         google_res = await self._check_google(claim)
 
-        llm_conf = llm_res.get("evidence", {}).get("confidence", 0.0)
-        google_verification = google_res.get("verification", "no_data")
-        if google_verification == "match":
-            google_conf = 1.0
-        elif google_verification == "mismatch":
-            google_conf = 1.0
-        elif google_verification == "conflicting":
-            google_conf = 0.5
-        else:
-            google_conf = 0.0
+        # Get the model name from the LLM source instance
+        model_name = self.llm_source.model.replace("-", "").lower()  # e.g., "gpt4" from "gpt-4"
+        
+        # Create LLM source result using Pydantic model
+        llm_evidence = Evidence(
+            summary=llm_res.get("evidence", {}).get("explanation", ""),
+            reference_links=llm_res.get("evidence", {}).get("reference_links", []),
+            last_updated=datetime.utcnow()
+        )
+        
+        llm_source = FactCheckResult(
+            source_id=f"{model_name}_1",
+            source_name=llm_res.get("source_name", f"{model_name.upper()}"),
+            source_type="llm",
+            verification=llm_res.get("verification", "no_data"),
+            confidence=llm_res.get("evidence", {}).get("confidence", 0.0),
+            evidence=llm_evidence
+        )
 
-        google_evidence = google_res.get("evidence", {})
+        # Create Google source result using Pydantic model
+        google_verification = google_res.get("verification", "no_data")
+        google_confidence = 1.0 if google_verification in ["match", "mismatch"] else (
+            0.5 if google_verification == "conflicting" else 0.0
+        )
+        
+        google_evidence = Evidence(
+            summary=str(google_res.get("evidence", {}).get("claim_reviews", [])),
+            reference_links=[rev.get("url", "") for rev in google_res.get("evidence", {}).get("claim_reviews", [])],
+            last_updated=datetime.utcnow()
+        )
+        
+        google_source = FactCheckResult(
+            source_id="google_factcheck_1",
+            source_name="Google Fact Check Tools",
+            source_type="api",
+            verification=google_verification,
+            confidence=google_confidence,
+            evidence=google_evidence
+        )
+
+        # Create individual source results for each Google claim review
+        google_review_sources = []
+        for i, rev in enumerate(google_res.get("evidence", {}).get("claim_reviews", [])):
+            review_evidence = Evidence(
+                summary=rev.get("textualRating", ""),
+                reference_links=[rev.get("url", "")],
+                last_updated=datetime.utcnow()
+            )
+            
+            review_source = FactCheckResult(
+                source_id=f"google_review_{i+1}",
+                source_name=rev.get("publisher", {}).get("name", "Unknown Publisher"),
+                source_type="api",
+                verification=rev.get("interpreted_rating", "no_data"),
+                confidence=1.0 if rev.get("interpreted_rating") in ["match", "mismatch"] else 0.0,
+                evidence=review_evidence
+            )
+            google_review_sources.append(review_source)
 
         return {
             "claim_text": claim,
-            "llm_verification": llm_res.get("verification", "no_data"),
-            "llm_confidence": llm_conf,
-            "llm_explanation": llm_res.get("evidence", {}).get("explanation", ""),
-            "llm_reference_links": llm_res.get("evidence", {}).get("reference_links", []),
-            "google_verification": google_verification,
-            "google_confidence": google_conf,
-            "google_evidence": google_evidence,  # full metadata including raw_data and claim_reviews
-            "google_sources": google_evidence.get("claim_reviews", [])
+            "sources": [llm_source, google_source] + google_review_sources
         }
 
     async def check_facts(self, claims: List[str]) -> List[Dict[str, Any]]:
@@ -226,13 +336,21 @@ class FactCheckerService:
                 results.append(result)
             except Exception as e:
                 self.logger.error(f"Error processing claim: {e}")
+                error_evidence = Evidence(
+                    summary=f"Error processing claim: {str(e)}",
+                    reference_links=[],
+                    last_updated=datetime.utcnow()
+                )
+                error_source = FactCheckResult(
+                    source_id="error_1",
+                    source_name="Error",
+                    source_type="api",  # Using "api" as the source type for errors
+                    verification="no_data",
+                    confidence=0.0,
+                    evidence=error_evidence
+                )
                 results.append({
                     "claim_text": claim,
-                    "llm_verification": "no_data",
-                    "llm_confidence": 0.0,
-                    "google_verification": "no_data",
-                    "google_confidence": 0.0,
-                    "sources": [],
-                    "error": str(e)
+                    "sources": [error_source]
                 })
         return results
