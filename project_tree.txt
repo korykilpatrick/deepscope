@@ -11,6 +11,9 @@
     ├── dependencies.py
     ├── logging_config.py
     ├── main.py
+    ├── models
+    │   ├── __init__.py
+    │   └── schemas.py
     ├── services
     │   ├── __init__.py
     │   ├── claim_service.py
@@ -19,7 +22,8 @@
     ├── tests
     │   ├── test_claim_extractor.py
     │   ├── test_factchecker.py
+    │   ├── test_google_factcheck.py
     │   └── test_video_routes.py
     └── verdict_aggregator.py
 
-5 directories, 18 files
+6 directories, 21 files
