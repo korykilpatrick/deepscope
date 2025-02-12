@@ -17,9 +17,19 @@ extract_claims_prompt = PromptTemplate(
     input_variables=["transcript"],
     template="""
 You are given a transcript in SRT format that contains timestamps and text content.
-Your task is to extract falsifiable claims and their associated timestamps.
+Your task is to extract claims that would be meaningful to fact-check.
 
-A "falsifiable claim" is a statement of fact that can be proven or disproven with evidence.
+A claim is worth fact-checking if it meets these core criteria:
+1. It asserts something as true about the world
+2. Its truth or falsity would matter to people beyond the speaker
+3. It can be verified or disputed using evidence
+4. The verification would contribute to public knowledge
+
+Think like a fact-checker. For each statement, ask:
+- "Could I investigate this claim?"
+- "Would proving/disproving this claim matter?"
+- "Is there authoritative evidence I could cite?"
+- "Would fact-checking this help combat misinformation?"
 
 DO NOT include:
 - Opinions or personal preferences (e.g., "I love pizza")
@@ -31,14 +41,94 @@ DO NOT include:
 - Value judgments
 - Commentary or reactions
 
-ONLY include statements that:
-- Can be verified with concrete evidence
-- Have a clear true/false outcome
-- Are objective and measurable
+Additionally, DO NOT include these specific types of claims:
+1. Technical instructions or tutorials
+   ❌ "The Finviz screener requires four specific presets"
+   ❌ "You need to set the short float to over 30 percent"
+   ❌ "The recipe requires baking at 350 degrees for 30 minutes"
+   ❌ "You have to press Alt+F4 to activate the feature"
 
-Extract all potential claims, even if they use pronouns or lack full context.
-Split compound claims into separate statements.
-Remove any subjective commentary or reactions.
+2. Product/website features or capabilities
+   ❌ "The website has a screeners tab"
+   ❌ "The platform allows users to create meme coins"
+   ❌ "This phone has a 48MP camera"
+   ❌ "The software can process 100 images per second"
+
+3. Individual experiences or anecdotes
+   ❌ "A bettor won $23,000 on a parlay bet"
+   ❌ "I made $100K using this strategy"
+   ❌ "A patient recovered using this treatment"
+   ❌ "My friend said this worked for them"
+   ❌ "A user commented 'this product changed my life'"
+
+4. Future announcements or plans
+   ❌ "The coin will launch next week"
+   ❌ "They plan to release a new feature"
+   ❌ "The movie will premiere next month"
+   ❌ "An anonymous source claims they will announce something next week"
+
+5. Gambling or betting outcomes
+   ❌ "Someone turned 20 cents into $3.6 million"
+   ❌ "A trader made 1000% returns"
+   ❌ "A player won the jackpot yesterday"
+
+6. Subjective statements or opinions
+   ❌ "This is the best trading strategy"
+   ❌ "The market is looking bullish"
+   ❌ "The movie was amazing"
+   ❌ "Random Twitter users saying 'this stock will moon'"
+
+7. Unattributed or vaguely attributed quotes
+   ❌ "People are saying this is the next big thing"
+   ❌ "Some experts believe the market will crash"
+   ❌ "They say you should never invest in penny stocks"
+   ❌ "Sources familiar with the matter stated"
+
+Examples of claims worth fact-checking by type:
+
+Factual Assertions:
+✓ "Bitcoin reached $69,000 in November 2021"
+✓ "The 2023 California wildfires burned over 500,000 acres"
+✓ "SpaceX launched 100 rockets in 2023"
+❌ "This strategy is guaranteed to work" (unverifiable guarantee)
+
+Statistical Claims:
+✓ "COVID-19 cases increased by 40% in New York during December 2023"
+✓ "US inflation rate hit 3.4% in December 2023"
+✓ "90% of ocean plastic comes from 10 rivers"
+❌ "Many people are saying this works" (vague statistics)
+
+Attributed Quotes:
+✓ "Warren Buffett said 'our favorite holding period is forever'"
+✓ "Elon Musk tweeted 'Tesla stock price is too high imo' on May 1, 2020"
+✓ "The CEO stated in the earnings call that they lost $2 billion"
+❌ "Someone on Reddit said this is a scam" (unverifiable source)
+
+Historical Claims:
+✓ "The 2008 financial crisis caused 8.7 million job losses"
+✓ "The company's stock fell 30% after the scandal in 2022"
+✓ "This was the largest product recall in automotive history"
+❌ "Things were better in the old days" (subjective comparison)
+
+Causal Claims:
+✓ "The policy change led to a 20% reduction in emissions"
+✓ "The new law resulted in 50,000 new jobs"
+✓ "The algorithm update caused a 40% drop in engagement"
+❌ "The strategy stopped working because people found out about it" (unverifiable causation)
+
+Comparative Claims:
+✓ "This was the hottest summer in 100 years"
+✓ "The company grew faster than any other tech firm in 2023"
+✓ "The drug showed 50% better results than existing treatments"
+❌ "This is better than the competition" (subjective comparison)
+
+Record Claims:
+✓ "This is the highest inflation rate since 1981"
+✓ "The movie broke all box office records in its opening weekend"
+✓ "The athlete set a new world record in the 100m sprint"
+❌ "This is the best performance ever" (subjective record)
+
+Remember: The key question is not "Is this claim true?" but rather "Is this claim worth and possible to fact-check?"
 
 For each claim, identify:
 1. The claim text
