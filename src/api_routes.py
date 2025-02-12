@@ -123,7 +123,7 @@ async def process_claims_in_background(
         })
 
     transcript_svc.store_fact_check_results(video_id, to_store)
-    transcript_svc.update_transcript_status(video_id, "processed_with_results")
+    transcript_svc.update_transcript_status(video_id, "processed")
 
 @router.post("/videos/{video_id}/process")
 async def process_transcript(
