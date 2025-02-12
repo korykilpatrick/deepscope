@@ -1,7 +1,7 @@
 import unittest
 import sys
 import os
-from typing import List
+from typing import List, Dict, Any
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,8 +20,18 @@ class TestClaimExtractor(unittest.TestCase):
             exact_count: If True, requires exact number of claims to match
         """
         claims = extract_claims(text)
-        found_claims = [claim.rstrip('.').lower() for claim in claims]
+        found_claims = [claim["text"].rstrip('.').lower() for claim in claims]
         expected_lower = [claim.lower() for claim in expected_claims]
+        
+        # Verify timestamp format
+        for claim in claims:
+            self.assertIn("start_time", claim, "Claim missing start_time")
+            self.assertIn("end_time", claim, "Claim missing end_time")
+            # Verify timestamp format HH:MM:SS,mmm
+            self.assertRegex(claim["start_time"], r'^\d{2}:\d{2}:\d{2},\d{3}$', 
+                           f"Invalid start_time format: {claim['start_time']}")
+            self.assertRegex(claim["end_time"], r'^\d{2}:\d{2}:\d{2},\d{3}$',
+                           f"Invalid end_time format: {claim['end_time']}")
         
         # For exact count matching
         if exact_count and len(claims) != len(expected_claims):
@@ -31,7 +41,7 @@ class TestClaimExtractor(unittest.TestCase):
                 f"\n\nExpected claims:"
                 f"\n" + "\n".join(f"  {i+1}. {c}" for i, c in enumerate(expected_claims)) +
                 f"\n\nActual claims:"
-                f"\n" + "\n".join(f"  {i+1}. {c}" for i, c in enumerate(claims))
+                f"\n" + "\n".join(f"  {i+1}. {c['text']}" for i, c in enumerate(claims))
             )
         
         # Check each expected claim is found
@@ -43,8 +53,8 @@ class TestClaimExtractor(unittest.TestCase):
         # Check for unexpected extra claims
         extra_claims = []
         for found in claims:
-            if not any(expected.lower() in found.lower() for expected in expected_claims):
-                extra_claims.append(found)
+            if not any(expected.lower() in found["text"].lower() for expected in expected_claims):
+                extra_claims.append(found["text"])
         
         if missing_claims or extra_claims:
             failure_msg = "\nClaim extraction failed!"
@@ -57,7 +67,8 @@ class TestClaimExtractor(unittest.TestCase):
             failure_msg += "\n\nAll expected claims:"
             failure_msg += "\n" + "\n".join(f"  {i+1}. {c}" for i, c in enumerate(expected_claims))
             failure_msg += "\n\nAll actual claims:"
-            failure_msg += "\n" + "\n".join(f"  {i+1}. {c}" for i, c in enumerate(claims))
+            failure_msg += "\n" + "\n".join(f"  {i+1}. {c['text']} ({c['start_time']} -> {c['end_time']})" 
+                                          for i, c in enumerate(claims))
             self.fail(failure_msg)
 
     def test_basic_factual_claim(self):
@@ -288,6 +299,25 @@ class TestClaimExtractor(unittest.TestCase):
             "The 4 GPUs required for Google's new AI model cost $40,000"
         ]
         self.assertClaimsMatch(text, expected_claims)
+
+    def test_srt_format_handling(self):
+        """Test that the extractor can handle SRT formatted input with timestamps"""
+        text = """1
+00:00:01,000 --> 00:00:04,000
+The Earth orbits around the Sun.
+
+2
+00:00:04,500 --> 00:00:07,500
+This is a beautiful day."""
+        
+        expected_claims = ["The Earth orbits around the Sun"]
+        claims = extract_claims(text)
+        
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["text"].rstrip('.').lower(), 
+                        expected_claims[0].lower())
+        self.assertEqual(claims[0]["start_time"], "00:00:01,000")
+        self.assertEqual(claims[0]["end_time"], "00:00:04,000")
 
 if __name__ == '__main__':
     unittest.main() 

@@ -56,7 +56,7 @@ async def get_claims(
     if not transcript:
         raise HTTPException(status_code=404, detail="Video transcript not found")
 
-    result = await claim_svc.process_text(transcript.get("text", ""))
+    result = await claim_svc.process_text(transcript.get("raw_text", ""))
     return {
         "video_id": video_id,
         "claims": result["claims"],
@@ -72,7 +72,7 @@ async def process_claims_in_background(video_id: str,
         return
 
     segments = transcript.get("segments", [])
-    result = await claim_svc.process_text(transcript.get("text", ""))
+    result = await claim_svc.process_text(transcript.get("raw_text", ""))
 
     to_store = []
     for claim, verdict in zip(result["claims"], result["verdicts"]):
@@ -123,8 +123,7 @@ async def extract_claims_from_text(
     chain=Depends(get_full_fact_checking_chain)
 ):
     try:
-        # Just use the chain’s claim extractor
-        result = chain.claim_extractor({"input_text": input_data.text})
+        result = chain.claim_extractor({"transcript": input_data.text})
         return {"claims": result["output"] or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

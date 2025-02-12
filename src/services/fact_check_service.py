@@ -209,17 +209,56 @@ class FactCheckerService:
         else:
             return await self._check_google(claim)
 
-    async def check_facts(self, claims: List[str]) -> Dict[str, Any]:
+    async def check_facts(self, claims: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Check a list of claims using the fact checking pipeline.
+        Returns aggregated results and summary.
+        """
+        if not claims:
+            return {
+                "aggregated_results": [],
+                "summary": {"status": "no_claims_to_check"}
+            }
+
         processing_times = {}
-        claims_results = []
+        results = []
+
         for claim in claims:
+            claim_text = claim["text"] if isinstance(claim, dict) else str(claim)
             start_time = time.time()
-            result = await self.check_fact(claim)
-            processing_time = time.time() - start_time
-            processing_times[claim] = processing_time
-            claims_results.append({
-                "claim_text": claim,
-                "checked_sources": [result],
-                "source_context": ""
-            })
-        return aggregate_verdicts(claims_results, processing_times)
+            
+            # Process the claim
+            try:
+                result = await self.check_fact(claim_text)
+                processing_time = time.time() - start_time
+                processing_times[claim_text] = processing_time
+                
+                # Add timestamps to result if available
+                if isinstance(claim, dict):
+                    result["start_time"] = claim.get("start_time")
+                    result["end_time"] = claim.get("end_time")
+                
+                results.append(result)
+            except Exception as e:
+                self.logger.error(f"Error processing claim: {e}")
+                results.append({
+                    "claim": claim_text,
+                    "status": "error",
+                    "error": str(e)
+                })
+
+        # Calculate summary statistics
+        total_time = sum(processing_times.values())
+        avg_time = total_time / len(claims) if claims else 0
+        
+        summary = {
+            "total_claims": len(claims),
+            "total_processing_time": total_time,
+            "average_processing_time": avg_time,
+            "status": "completed"
+        }
+
+        return {
+            "aggregated_results": results,
+            "summary": summary
+        }

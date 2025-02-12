@@ -2,6 +2,9 @@ from langchain.chains.base import Chain
 from pydantic import Field
 from typing import Dict, Any, List
 from abc import ABC
+from ..logging_config import get_logger
+
+logger = get_logger()
 
 class FactCheckingChain(Chain, ABC):
     class Config:
@@ -9,7 +12,7 @@ class FactCheckingChain(Chain, ABC):
 
     @property
     def input_keys(self) -> List[str]:
-        return ["input_text"]
+        return ["transcript"]
 
     @property
     def output_keys(self) -> List[str]:
@@ -18,8 +21,14 @@ class FactCheckingChain(Chain, ABC):
 class ClaimExtractionChain(FactCheckingChain):
     def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         from ..claim_extractor import extract_claims
-        text = inputs["input_text"]
+        text = inputs["transcript"]
+        logger.info("ClaimExtractionChain processing input:")
+        logger.info(f"First 500 chars: {text[:500]}")
+        
         claims = extract_claims(text)
+        logger.info(f"Claims extracted: {len(claims)}")
+        logger.info(f"Claims: {claims}")
+        
         return {"output": claims}
 
 class FactVerificationChain(FactCheckingChain):
@@ -29,7 +38,7 @@ class FactVerificationChain(FactCheckingChain):
         raise NotImplementedError("Use async method")
 
     async def _acall(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        claims = inputs["input_text"]
+        claims = inputs["transcript"]
         if isinstance(claims, str):
             claims = [claims]
         return await self.fact_checker.check_facts(claims)
@@ -37,7 +46,7 @@ class FactVerificationChain(FactCheckingChain):
 class VerdictAggregationChain(FactCheckingChain):
     def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         from ..verdict_aggregator import aggregate_verdicts
-        results = inputs["input_text"]
+        results = inputs["transcript"]
         aggregated = aggregate_verdicts(results)
         return {"output": aggregated}
 
@@ -55,7 +64,7 @@ class FullFactCheckingChain(Chain):
 
     @property
     def input_keys(self) -> List[str]:
-        return ["text"]
+        return ["transcript"]
 
     @property
     def output_keys(self) -> List[str]:
@@ -71,19 +80,28 @@ class FullFactCheckingChain(Chain):
 
     async def _acall(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         # 1) Extract claims
-        claims_output = self.claim_extractor.invoke({"input_text": inputs["text"]})
+        logger.info("FullFactCheckingChain starting claim extraction")
+        claims_output = self.claim_extractor.invoke({"transcript": inputs["transcript"]})
         claims = claims_output["output"]
+        logger.info(f"Claims extracted in full chain: {len(claims)}")
+        
         if not claims:
+            logger.info("No claims found, returning empty result")
             return {
                 "claims": [],
                 "verdicts": [],
                 "final_result": {"status": "no_claims_found"}
             }
-        # 2) Verify claims using the fact_verifier,
-        # which now returns aggregated results (with keys 'aggregated_results' and 'summary')
-        aggregated = await self.fact_verifier._acall({"input_text": claims})
-        return {
+            
+        # 2) Verify claims using the fact_verifier
+        logger.info("Starting fact verification")
+        aggregated = await self.fact_verifier._acall({"transcript": claims})
+        logger.info("Fact verification complete")
+        
+        result = {
             "claims": claims,
             "verdicts": aggregated.get("aggregated_results", []),
             "final_result": aggregated.get("summary", {})
         }
+        logger.info(f"Final result: {result}")
+        return result
