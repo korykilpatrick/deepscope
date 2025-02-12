@@ -76,17 +76,21 @@ async def process_claims_in_background(video_id: str,
 
     to_store = []
     for claim, verdict in zip(result["claims"], result["verdicts"]):
-        claim_start = ""
-        claim_end = ""
-        # Simple substring match to find a segment
-        for seg in segments:
-            if claim in seg["text"]:
-                claim_start = seg["start"]
-                claim_end = seg["end"]
-                break
+        # Claims now come with timestamps
+        claim_text = claim["text"] if isinstance(claim, dict) else str(claim)
+        claim_start = claim.get("start_time", "") if isinstance(claim, dict) else ""
+        claim_end = claim.get("end_time", "") if isinstance(claim, dict) else ""
+
+        # Only try to find segment if we don't have timestamps
+        if not claim_start or not claim_end:
+            for seg in segments:
+                if claim_text in seg["text"]:
+                    claim_start = seg["start"]
+                    claim_end = seg["end"]
+                    break
 
         to_store.append({
-            "claim_text": claim,
+            "claim_text": claim_text,
             "checked_sources": verdict.get("checked_sources", []),
             "final_verdict": verdict.get("verdict", {}).get("status", "unknown"),
             "claim_start": claim_start,
