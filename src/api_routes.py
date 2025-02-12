@@ -13,11 +13,9 @@ from pydantic import BaseModel, Field
 
 router = APIRouter()
 
-# Create singletons via dependencies
 def get_transcript_service(db=Depends(get_firebase_db)):
     return TranscriptService(db=db)
 
-# Build the chain with injected fact checker
 def get_full_fact_checking_chain(fact_checker=Depends(get_fact_checker_service)):
     from .chains.base import FullFactCheckingChain
     chain = FullFactCheckingChain(fact_checker=fact_checker)
@@ -25,7 +23,6 @@ def get_full_fact_checking_chain(fact_checker=Depends(get_fact_checker_service))
 
 def get_claim_service(chain=Depends(get_full_fact_checking_chain)):
     return ClaimService(chain=chain)
-
 
 @router.get("/videos", response_model=List[Dict[str, Any]])
 async def get_videos(
@@ -60,8 +57,7 @@ async def get_claims(
     return {
         "video_id": video_id,
         "claims": result["claims"],
-        "verdicts": result["verdicts"],
-        "final_result": result["final_result"]
+        "fact_check_results": result["fact_check_results"]
     }
 
 async def process_claims_in_background(video_id: str,
@@ -71,35 +67,37 @@ async def process_claims_in_background(video_id: str,
     if not transcript:
         return
 
-    segments = transcript.get("segments", [])
+    # 1) Run pipeline
     result = await claim_svc.process_text(transcript.get("raw_text", ""))
 
+    # 2) Prepare data for storage
+    fact_check_results = result["fact_check_results"]
+    claims = result["claims"]
     to_store = []
-    for claim, verdict in zip(result["claims"], result["verdicts"]):
-        # Claims now come with timestamps
-        claim_text = claim["text"] if isinstance(claim, dict) else str(claim)
-        claim_start = claim.get("start_time", "") if isinstance(claim, dict) else ""
-        claim_end = claim.get("end_time", "") if isinstance(claim, dict) else ""
-
-        # Only try to find segment if we don't have timestamps
-        if not claim_start or not claim_end:
-            for seg in segments:
-                if claim_text in seg["text"]:
-                    claim_start = seg["start"]
-                    claim_end = seg["end"]
-                    break
+    for i, claim_data in enumerate(fact_check_results):
+        # Each entry in fact_check_results corresponds to each extracted claim
+        # Pair with the claim timestamps
+        claim_text = claim_data["claim_text"]
+        start_time = claims[i].get("start_time", "")
+        end_time = claims[i].get("end_time", "")
+        llm_conf = claim_data.get("llm_confidence", 0.0)
+        google_conf = claim_data.get("google_confidence", 0.0)
+        sources = claim_data.get("sources", [])
 
         to_store.append({
             "claim_text": claim_text,
-            "checked_sources": verdict.get("checked_sources", []),
-            "final_verdict": verdict.get("verdict", {}).get("status", "unknown"),
-            "claim_start": claim_start,
-            "claim_end": claim_end
+            "start_time": start_time,
+            "end_time": end_time,
+            "llm_confidence": llm_conf,
+            "google_confidence": google_conf,
+            "sources": sources
         })
 
     transcript_svc.store_fact_check_results(video_id, to_store)
-    final_status = result["final_result"].get("status", "unknown")
-    transcript_svc.update_transcript_status(video_id, f"processed_with_verdict_{final_status}")
+
+    # 3) Update transcript status
+    # For example, you could update it based on google_confidence or something else
+    transcript_svc.update_transcript_status(video_id, "processed_with_results")
 
 @router.post("/videos/{video_id}/process")
 async def process_transcript(
@@ -145,12 +143,9 @@ async def verify_claim(
     fact_checker=Depends(get_fact_checker_service)
 ):
     try:
-        result = await fact_checker.check_facts([request.text])
-        # result is aggregated, so pull first from "aggregated_results"
-        aggregated = result["aggregated_results"][0] if result.get("aggregated_results") else {}
-        if request.source_context and "claim" in aggregated:
-            aggregated["claim"]["source_context"] = request.source_context
-        return aggregated
+        # We call the same pipeline, but just on one claim
+        results = await fact_checker.check_facts([request.text])
+        return results[0] if results else {}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing claim: {str(e)}")
 
@@ -161,12 +156,8 @@ async def verify_claims(
 ):
     try:
         claims = [c.text for c in request.claims]
-        result = await fact_checker.check_facts(claims)
-        # Insert source_context
-        for i, c_req in enumerate(request.claims):
-            if (i < len(result["aggregated_results"]) and c_req.source_context):
-                result["aggregated_results"][i]["claim"]["source_context"] = c_req.source_context
-        return result
+        results = await fact_checker.check_facts(claims)
+        return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing claims: {str(e)}")
 

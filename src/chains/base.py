@@ -24,11 +24,11 @@ class ClaimExtractionChain(FactCheckingChain):
         text = inputs["transcript"]
         logger.info("ClaimExtractionChain processing input:")
         logger.info(f"First 500 chars: {text[:500]}")
-        
+
         claims = extract_claims(text)
         logger.info(f"Claims extracted: {len(claims)}")
         logger.info(f"Claims: {claims}")
-        
+
         return {"output": claims}
 
 class FactVerificationChain(FactCheckingChain):
@@ -41,23 +41,15 @@ class FactVerificationChain(FactCheckingChain):
         claims = inputs["transcript"]
         if isinstance(claims, str):
             claims = [claims]
-        return await self.fact_checker.check_facts(claims)
-
-class VerdictAggregationChain(FactCheckingChain):
-    def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        from ..verdict_aggregator import aggregate_verdicts
-        results = inputs["transcript"]
-        aggregated = aggregate_verdicts(results)
-        return {"output": aggregated}
-
-    async def _acall(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        return self._call(inputs)
+        # Directly call the check_facts method
+        results = await self.fact_checker.check_facts(claims)
+        return {"output": results}
 
 class FullFactCheckingChain(Chain):
     fact_checker: Any = Field(...)
     claim_extractor: ClaimExtractionChain = Field(default_factory=ClaimExtractionChain)
     fact_verifier: FactVerificationChain = Field(default_factory=FactVerificationChain)
-    verdict_aggregator: VerdictAggregationChain = Field(default_factory=VerdictAggregationChain)
+    # Removed the verdict_aggregator
 
     class Config:
         arbitrary_types_allowed = True
@@ -68,7 +60,8 @@ class FullFactCheckingChain(Chain):
 
     @property
     def output_keys(self) -> List[str]:
-        return ["claims", "verdicts", "final_result"]
+        # We'll return claims plus the fact-check results
+        return ["claims", "fact_check_results"]
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -84,24 +77,21 @@ class FullFactCheckingChain(Chain):
         claims_output = self.claim_extractor.invoke({"transcript": inputs["transcript"]})
         claims = claims_output["output"]
         logger.info(f"Claims extracted in full chain: {len(claims)}")
-        
+
         if not claims:
             logger.info("No claims found, returning empty result")
             return {
                 "claims": [],
-                "verdicts": [],
-                "final_result": {"status": "no_claims_found"}
+                "fact_check_results": []
             }
-            
-        # 2) Verify claims using the fact_verifier
+
+        # 2) Verify claims
         logger.info("Starting fact verification")
-        aggregated = await self.fact_verifier._acall({"transcript": claims})
+        verification_output = await self.fact_verifier._acall({"transcript": claims})
+        fact_check_results = verification_output["output"]
         logger.info("Fact verification complete")
-        
-        result = {
+
+        return {
             "claims": claims,
-            "verdicts": aggregated.get("aggregated_results", []),
-            "final_result": aggregated.get("summary", {})
+            "fact_check_results": fact_check_results
         }
-        logger.info(f"Final result: {result}")
-        return result
