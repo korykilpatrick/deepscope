@@ -168,3 +168,31 @@ async def verify_claims(
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "deepscope-factcheck"}
+
+@router.post("/videos/{video_id}/reset")
+async def reset_video(
+    video_id: str,
+    transcript_svc: TranscriptService = Depends(get_transcript_service)
+):
+    """Reset a video by completely removing fact check results collection and setting status to pending"""
+    try:
+        # Get the video document
+        doc_ref = transcript_svc.db.collection('videos').document(video_id)
+        doc = doc_ref.get()
+        
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Video not found")
+        
+        # Recursively delete the entire fact_check_results collection
+        fact_checks_ref = doc_ref.collection('fact_check_results')
+        transcript_svc.db.recursiveDelete(fact_checks_ref)
+            
+        # Reset status and clean up the empty array field
+        doc_ref.update({
+            'status': 'pending',
+            'fact_check_results': transcript_svc.db.field_path('fact_check_results').delete()
+        })
+        
+        return {"status": "success", "message": f"Reset video {video_id}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
