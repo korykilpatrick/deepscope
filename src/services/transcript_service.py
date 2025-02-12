@@ -81,14 +81,15 @@ class TranscriptService:
         return videos
 
     def store_fact_check_results(self, video_id: str, claims: List[Dict[str, Any]]):
-        """
-        Stores each fact check result as a doc in the 'fact_check_results' subcollection.
-        Then stores the 'sources' array as its own subcollection for that doc.
-        """
         doc_ref = self.db.collection('videos').document(video_id)
-        for i, claim_data in enumerate(claims):
-            sources = claim_data.pop("sources", [])
+        for i, item in enumerate(claims):
+            fact_check_doc = item["fact_check_doc"]   # { claim_text, start_time, end_time }
+            sources = item.get("sources", [])
+
+            # Create a doc in 'fact_check_results' subcollection
             claim_ref = doc_ref.collection('fact_check_results').document(str(i))
-            claim_ref.set(claim_data)
+            claim_ref.set(fact_check_doc)
+
+            # Store each source in its own doc
             for j, source_data in enumerate(sources):
                 claim_ref.collection('sources').document(str(j)).set(source_data)

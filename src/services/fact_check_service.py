@@ -8,9 +8,6 @@ from datetime import datetime
 
 from openai import OpenAI  # Use the new OpenAI client interface
 
-# Removed aggregator imports
-# from ..verdict_aggregator import aggregate_verdicts
-
 class FactCheckSource(Protocol):
     def check_claim(self, claim: str) -> Dict[str, Any]:
         pass
@@ -89,18 +86,12 @@ class GoogleFactCheckAPI:
             for item in claims_data:
                 reviews = item.get("claimReview", [])
                 for rev in reviews:
-                    textual_rating = rev.get("textualRating", "")
-                    interpreted = self._interpret_rating(textual_rating)
-                    all_reviews.append({
-                        "url": rev.get("url", ""),
-                        "publisher_name": rev.get("publisher", {}).get("name", ""),
-                        "title": rev.get("title", ""),
-                        "textual_rating": textual_rating,
-                        "interpreted_rating": interpreted
-                    })
-                    if interpreted == "match":
+                    rev_copy = rev.copy()  # Preserve all metadata
+                    rev_copy["interpreted_rating"] = self._interpret_rating(rev.get("textualRating", ""))
+                    all_reviews.append(rev_copy)
+                    if rev_copy["interpreted_rating"] == "match":
                         match_count += 1
-                    elif interpreted == "mismatch":
+                    elif rev_copy["interpreted_rating"] == "mismatch":
                         mismatch_count += 1
 
             if not all_reviews:
@@ -118,7 +109,7 @@ class GoogleFactCheckAPI:
             return {
                 "source_name": "Google Fact Check Tools Claims",
                 "verification": final_verification,
-                "evidence": {"claim_reviews": all_reviews},
+                "evidence": {"claim_reviews": all_reviews, "raw_data": data},
                 "source_url": ""
             }
         except Exception as e:
@@ -182,7 +173,7 @@ class LLMFactCheckAPI:
 class FactCheckerService:
     """
     Hybrid fact checker that now calls BOTH the LLM and Google Fact Checker,
-    returning separate confidences and sources from Google.
+    returning separate confidences and preserving all Google API metadata.
     """
     def __init__(self, openai_api_key: str, google_api_key: str, logger):
         self.llm_source = LLMFactCheckAPI(openai_api_key)
@@ -198,13 +189,11 @@ class FactCheckerService:
         return await loop.run_in_executor(None, self.google_source.check_claim, claim)
 
     async def check_fact(self, claim: str) -> Dict[str, Any]:
-        # Always do LLM first, then Google
+        # Always call LLM first, then Google
         llm_res = await self._check_llm(claim)
         google_res = await self._check_google(claim)
 
-        # Extract confidence from LLM
         llm_conf = llm_res.get("evidence", {}).get("confidence", 0.0)
-        # Derive a numeric confidence for Google from verification
         google_verification = google_res.get("verification", "no_data")
         if google_verification == "match":
             google_conf = 1.0
@@ -215,23 +204,23 @@ class FactCheckerService:
         else:
             google_conf = 0.0
 
-        # Sources from Google
         google_evidence = google_res.get("evidence", {})
-        google_sources = google_evidence.get("claim_reviews", [])
 
         return {
             "claim_text": claim,
             "llm_verification": llm_res.get("verification", "no_data"),
             "llm_confidence": llm_conf,
+            "llm_explanation": llm_res.get("evidence", {}).get("explanation", ""),
+            "llm_reference_links": llm_res.get("evidence", {}).get("reference_links", []),
             "google_verification": google_verification,
             "google_confidence": google_conf,
-            "sources": google_sources
+            "google_evidence": google_evidence,  # full metadata including raw_data and claim_reviews
+            "google_sources": google_evidence.get("claim_reviews", [])
         }
 
     async def check_facts(self, claims: List[str]) -> List[Dict[str, Any]]:
         results = []
         for claim in claims:
-            start_time = time.time()
             try:
                 result = await self.check_fact(claim)
                 results.append(result)

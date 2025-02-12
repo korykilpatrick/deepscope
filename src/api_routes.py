@@ -60,43 +60,69 @@ async def get_claims(
         "fact_check_results": result["fact_check_results"]
     }
 
-async def process_claims_in_background(video_id: str,
-                                       transcript_svc: TranscriptService,
-                                       claim_svc: ClaimService):
+async def process_claims_in_background(
+    video_id: str,
+    transcript_svc: TranscriptService,
+    claim_svc: ClaimService
+):
     transcript = transcript_svc.get_transcript(video_id)
     if not transcript:
         return
 
-    # 1) Run pipeline
+    # 1) Run the pipeline
     result = await claim_svc.process_text(transcript.get("raw_text", ""))
-
-    # 2) Prepare data for storage
     fact_check_results = result["fact_check_results"]
     claims = result["claims"]
+
     to_store = []
     for i, claim_data in enumerate(fact_check_results):
-        # Each entry in fact_check_results corresponds to each extracted claim
-        # Pair with the claim timestamps
-        claim_text = claim_data["claim_text"]
+        claim_text = claims[i].get("text", "")
         start_time = claims[i].get("start_time", "")
         end_time = claims[i].get("end_time", "")
-        llm_conf = claim_data.get("llm_confidence", 0.0)
-        google_conf = claim_data.get("google_confidence", 0.0)
-        sources = claim_data.get("sources", [])
 
-        to_store.append({
+        # Top-level fact-check doc with basic claim info
+        fact_check_doc = {
             "claim_text": claim_text,
             "start_time": start_time,
-            "end_time": end_time,
-            "llm_confidence": llm_conf,
-            "google_confidence": google_conf,
-            "sources": sources
+            "end_time": end_time
+        }
+
+        # LLM source with all returned metadata
+        llm_source = {
+            "source_name": "LLM Fact Checker",
+            "verification": claim_data.get("llm_verification", "no_data"),
+            "confidence": claim_data.get("llm_confidence", 0.0),
+            "type": "llm",
+            "explanation": claim_data.get("llm_explanation", ""),
+            "reference_links": claim_data.get("llm_reference_links", [])
+        }
+
+        # Google source with full evidence from the API
+        google_source = {
+            "source_name": "Google Fact Check Tools",
+            "verification": claim_data.get("google_verification", "no_data"),
+            "confidence": claim_data.get("google_confidence", 0.0),
+            "type": "google",
+            "evidence": claim_data.get("google_evidence", {})
+        }
+
+        # Convert each Google claim review into its own source doc, preserving all metadata
+        google_reviews = claim_data.get("google_evidence", {}).get("claim_reviews", [])
+        google_review_sources = []
+        for rev in google_reviews:
+            rev_source = rev.copy()
+            rev_source["type"] = "google_review"
+            rev_source["source_name"] = "Google Fact Check Tools Claims"
+            google_review_sources.append(rev_source)
+
+        all_sources = [llm_source, google_source] + google_review_sources
+
+        to_store.append({
+            "fact_check_doc": fact_check_doc,
+            "sources": all_sources
         })
 
     transcript_svc.store_fact_check_results(video_id, to_store)
-
-    # 3) Update transcript status
-    # For example, you could update it based on google_confidence or something else
     transcript_svc.update_transcript_status(video_id, "processed_with_results")
 
 @router.post("/videos/{video_id}/process")
@@ -143,7 +169,6 @@ async def verify_claim(
     fact_checker=Depends(get_fact_checker_service)
 ):
     try:
-        # We call the same pipeline, but just on one claim
         results = await fact_checker.check_facts([request.text])
         return results[0] if results else {}
     except Exception as e:
