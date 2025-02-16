@@ -37,11 +37,14 @@ pip install -r requirements.txt
 ```
 
 4. Set up environment variables:
-Create a `.env` file in the root directory with the following variables:
-```
-OPENAI_API_KEY=your_openai_api_key
-GOOGLE_FACTCHECK_API_KEY=your_google_api_key
-```
+   - Copy the example environment file:
+     ```bash
+     cp .env.example .env
+     ```
+   - Edit `.env` with your credentials:
+     - Get your OpenAI API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+     - Set up a [Firebase project](https://console.firebase.google.com/) and download the credentials JSON
+     - Get your Google API key from [Google Cloud Console](https://console.cloud.google.com/)
 
 ## Usage
 
@@ -52,6 +55,8 @@ uvicorn src.main:app --reload
 
 2. The API will be available at `http://localhost:8000`
 3. Access the API documentation at `http://localhost:8000/docs`
+
+## Project Structure
 
 ```
 deepscope/
